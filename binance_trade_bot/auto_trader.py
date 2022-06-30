@@ -136,6 +136,8 @@ class AutoTrader:
                 ratio_dict[pair] = (
                     coin_opt_coin_ratio - transaction_fee * self.config.SCOUT_MULTIPLIER * coin_opt_coin_ratio
                 ) - pair.ratio
+                if ratio_dict[pair] > 0:
+                    print(3)
         return ratio_dict
 
     def _jump_to_best_coin(self, coin: Coin, coin_price: float):
