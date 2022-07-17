@@ -34,7 +34,7 @@ class Config:  # pylint: disable=too-few-public-methods,too-many-instance-attrib
             config[USER_CFG_SECTION] = {}
         else:
             config.read(CFG_FL_NAME)
-
+            
         self.BRIDGE_SYMBOL = os.environ.get("BRIDGE_SYMBOL") or config.get(USER_CFG_SECTION, "bridge")
         self.BRIDGE = Coin(self.BRIDGE_SYMBOL, False)
 

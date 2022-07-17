@@ -237,7 +237,7 @@ class BinanceAPIManager:
     def _buy_quantity(
         self, origin_symbol: str, target_symbol: str, target_balance: float = None, from_coin_price: float = None
     ):
-        target_balance = target_balance or self.get_currency_balance(target_symbol)
+        # target_balance = target_balance or self.get_currency_balance(target_symbol)
         from_coin_price = from_coin_price or self.get_ticker_price(origin_symbol + target_symbol)
 
         origin_tick = self.get_alt_tick(origin_symbol, target_symbol)
@@ -300,7 +300,7 @@ class BinanceAPIManager:
         return self.retry(self._sell_alt, origin_coin, target_coin)
 
     def _sell_quantity(self, origin_symbol: str, target_symbol: str, origin_balance: float = None):
-        origin_balance = origin_balance or self.get_currency_balance(origin_symbol)
+        # origin_balance = origin_balance or self.get_currency_balance(origin_symbol)
 
         origin_tick = self.get_alt_tick(origin_symbol, target_symbol)
         return math.floor(origin_balance * 10 ** origin_tick) / float(10 ** origin_tick)

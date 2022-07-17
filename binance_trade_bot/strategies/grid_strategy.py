@@ -1,6 +1,12 @@
+from re import M
+import time
+import numpy as np
+import matplotlib.pyplot as plt
 import random
 import sys
 from datetime import datetime
+
+from matplotlib.cbook import print_cycles
 
 from binance_trade_bot.auto_trader import AutoTrader
 
@@ -9,10 +15,13 @@ class Strategy(AutoTrader):
     def initialize(self):
         super().initialize()
         self.initialize_current_coin()
+        self.prices = []
+        self.max_len = 15
+        self.status = None
 
     def scout(self):
         # Get
-        self.grid_strategy_trade()
+        self.simple_ma_trade()
     
     def grid_strategy_trade(self):
         # TODO: bridge coin
@@ -22,18 +31,67 @@ class Strategy(AutoTrader):
         buy_thrshold = 0.7
         sell_threshold = -0.7
         end_trade_ratio_threshold = 0.8 # [0, 1] ma change more than threshold then end trade
-        m = self.get_ma_slope()
-        if m > buy_thrshold:
-            self.buy_alt()
-            while 1:
-                m = self.get_ma_slope()
-                if m < buy_thrshold*(1-end_trade_ratio_threshold):
-                    self.sell_alt()
-                    break
-        # TODO: complete sell after buy success
-        # elif m < sell_threshold:
-        #     self.sell_alt()
+        
+    def simple_ma_trade(self):
+        ma_lenth1 = 15
+        ma_lenth2 = 60
+        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        self.prices.append(cur_price)
 
+        if len(self.prices) >= max(ma_lenth1, ma_lenth2):
+            ma1 = np.mean(self.prices[-ma_lenth1:])
+            ma2 = np.mean(self.prices[-ma_lenth2:])
+
+            if self.status:
+                if ma1 > ma2:
+                    if self.status == 'sell':
+                        altcoin = self.db.get_coin("ETH")
+                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+                        self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
+                    self.status = 'buy'
+                else:
+                    if self.status == 'buy':
+                        altcoin = self.db.get_coin("ETH")
+                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+                        self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
+                    self.status = 'sell'
+            else:
+                self.status = 'buy' if ma1 > ma2 else 'sell'
+
+            # print(self.manager.datetime, self.status)
+
+        # print(time.ctime(time.time()), self.manager.get_ticker_price("ETHUSDT"))
+    def moving_average(self, x, w):
+        return np.convolve(x, np.ones(w), 'valid') / w
+
+    def backtest_and_plot_ma(self):
+        N = 2000
+        # m = self.get_
+        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        self.prices.append(cur_price)
+        cur_len = len(self.prices)
+        # if cur_len > self.max_len:
+        #     self.prices.pop(0)
+        if cur_len == N+240-1:
+            ma_15 = self.moving_average(self.prices, 15)
+            ma_60 = self.moving_average(self.prices, 60)
+            ma_240 = self.moving_average(self.prices, 240)
+
+            ma_15 = ma_15[len(ma_15)-N:]
+            ma_60 = ma_60[len(ma_60)-N:]
+            prices = self.prices[len(self.prices)-N:]
+
+            if len(ma_240) == N:
+                r = 200
+                for i in range(0, N, r):
+                    fig, ax = plt.subplots(1, 1)
+                    ax.plot(prices[i:i+r])
+                    ax.plot(ma_15[i:i+r])
+                    ax.plot(ma_60[i:i+r])
+                    ax.plot(ma_240[i:i+r])
+                    ax.legend(['price', '15', '60', '240'])
+                    fig.savefig(f'plot/ma/ma_{i}_{i+r}.png')
+    
     def bridge_scout(self):
         current_coin = self.db.get_current_coin()
         if self.manager.get_currency_balance(current_coin.symbol) > self.manager.get_min_notional(
