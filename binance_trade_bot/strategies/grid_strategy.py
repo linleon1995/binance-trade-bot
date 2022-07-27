@@ -13,10 +13,10 @@ from binance_trade_bot.auto_trader import AutoTrader
 
 class Strategy(AutoTrader):
     def initialize(self):
-        super().initialize()
+        # super().initialize()
         self.initialize_current_coin()
         self.prices = []
-        self.max_len = 15
+        self.max_len = 2000
         self.status = None
 
     def scout(self):
@@ -33,10 +33,15 @@ class Strategy(AutoTrader):
         end_trade_ratio_threshold = 0.8 # [0, 1] ma change more than threshold then end trade
         
     def simple_ma_trade(self):
-        ma_lenth1 = 15
-        ma_lenth2 = 60
+        ma_lenth1 = 7 * 60
+        ma_lenth2 = 25 * 60 * 2
         cur_price = self.manager.get_ticker_price("ETHUSDT")
-        self.prices.append(cur_price)
+        if cur_price is None:
+            return
+        if cur_price is not None:
+            self.prices.append(cur_price)
+        if len(self.prices) > self.max_len:
+            self.prices.pop(0)
 
         if len(self.prices) >= max(ma_lenth1, ma_lenth2):
             ma1 = np.mean(self.prices[-ma_lenth1:])
@@ -44,12 +49,14 @@ class Strategy(AutoTrader):
 
             if self.status:
                 if ma1 > ma2:
+                # if ma1 > ma2 and (ma1-ma2)/ma2>0.5:
                     if self.status == 'sell':
                         altcoin = self.db.get_coin("ETH")
                         order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
                         self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
                     self.status = 'buy'
                 else:
+                # elif ma1 < ma2 and (ma2-ma1)/ma1>0.5:
                     if self.status == 'buy':
                         altcoin = self.db.get_coin("ETH")
                         order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
