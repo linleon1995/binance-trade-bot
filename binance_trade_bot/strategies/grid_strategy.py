@@ -7,8 +7,23 @@ import sys
 from datetime import datetime
 
 from matplotlib.cbook import print_cycles
+from regex import B
 
 from binance_trade_bot.auto_trader import AutoTrader
+
+# TODO: class to handle whole sequence (rsv, kdj, macd, ema)
+
+
+def rsv(data):
+    return 100 * (data[-1]-np.min(data)) / (np.max(data)-np.min(data))
+
+
+def kdj(data, last_k, last_d):
+    rsv_val = rsv(data)
+    k = (2/3)*last_k + (1/3)*rsv_val
+    d = (2/3)*last_d + (1/3)*last_k
+    j = 3*d - 2*k
+    return k, d, j
 
 
 class Strategy(AutoTrader):
@@ -16,12 +31,24 @@ class Strategy(AutoTrader):
         # super().initialize()
         self.initialize_current_coin()
         self.prices = []
+        self.prices_trade = []
         self.max_len = 2000
         self.status = None
+        self.last_status = None
+        self.action = None
+        self.last_action = None
+        self.last_k = 50
+        self.last_d = 50
+        self.trade_times = 0
+        self.total_fast = []
+        self.total_slow = []
 
     def scout(self):
         # Get
-        self.simple_ma_trade()
+        # self.slow_fast_ma_trade()
+        # self.slow_fast_ma_kdj_trade()
+        self.slow_fast_ma_kdj_trade_new()
+        # self.simple_ma_trade()
     
     def grid_strategy_trade(self):
         # TODO: bridge coin
@@ -33,13 +60,185 @@ class Strategy(AutoTrader):
         end_trade_ratio_threshold = 0.8 # [0, 1] ma change more than threshold then end trade
         
     def simple_ma_trade(self):
-        ma_lenth1 = 7 * 60
-        ma_lenth2 = 25 * 60 * 2
+        use_margin = True
+        buy_margin = 0.1
+        sell_margin = 0.1
+        ma_lenth = 25
+
         cur_price = self.manager.get_ticker_price("ETHUSDT")
-        if cur_price is None:
-            return
         if cur_price is not None:
             self.prices.append(cur_price)
+        else:
+            return
+        if len(self.prices) > self.max_len:
+            self.prices.pop(0)
+
+        if len(self.prices) >= ma_lenth:
+            ma = np.mean(self.prices[-ma_lenth:])
+
+        if not self.status:
+            if cur_price < ma*(1-buy_margin):
+                altcoin = self.db.get_coin("ETH")
+                order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+                self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
+                # TODO: sell if earn money (not nessecary)
+                buy_price = cur_price
+                self.status = True
+        else:
+            if cur_price >= ma*(1+sell_margin) and cur_price > buy_price:
+                altcoin = self.db.get_coin("ETH")
+                order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+                self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
+                self.status = False
+
+    # def slow_fast_ma_kdj_trade(self):
+    #     ma_lenth1 = 7 * 15
+    #     ma_lenth2 = 99 * 15
+    #     buy_margin = 0.05
+    #     sell_margin = 0.05
+    #     cur_price = self.manager.get_ticker_price("ETHUSDT")
+    #     if cur_price is not None:
+    #         self.prices.append(cur_price)
+    #     else:
+    #         return
+    #     if len(self.prices) > self.max_len:
+    #         self.prices.pop(0)
+
+    #     if len(self.prices) >= max(ma_lenth1, ma_lenth2):
+    #         ma1 = np.mean(self.prices[-ma_lenth1:])
+    #         ma2 = np.mean(self.prices[-ma_lenth2:])
+
+    #         if self.status:
+    #             # if ma1 > ma2*(1+sell_margin) and self.last_k < 85:
+    #             if ma1 > ma2*(1+sell_margin):
+    #                 altcoin = self.db.get_coin("ETH")
+    #                 order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+    #                 self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
+    #                 self.status = 'buy'
+
+    #             if self.status == 'buy':
+    #                 k, d, j = kdj(self.prices[-9:], self.last_k, self.last_d)
+    #                 # print('kdj', k, d, j)
+    #                 self.last_k = k
+    #                 self.last_d = d
+    #                 if k > 85 or ma1 <= ma2:
+    #                     altcoin = self.db.get_coin("ETH")
+    #                     order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+    #                     self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
+    #                     self.status = 'sell'
+    #         else:
+    #             self.status = 'buy' if ma1 > ma2 else 'sell'
+
+    def simple_trader(self, signal):
+        trade, coin_symbol, quant = signal
+        altcoin = self.db.get_coin(coin_symbol)
+
+        if trade == 'sell':
+            self.manager.sell_alt(altcoin, self.config.BRIDGE, quant)
+            self.trade_times += 1
+
+        if trade == 'buy':
+            self.manager.buy_alt(altcoin, self.config.BRIDGE, quant)
+        price = self.manager.get_ticker_price("ETHUSDT")
+        self.prices_trade.append(price)
+
+    def slow_fast_ma_kdj_trade_new(self):
+        fast_interval = 7
+        slow_interval = 99
+        gap = 0.01
+        k_min = 100
+        k_max = 0
+        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        if cur_price is not None:
+            self.prices.append(cur_price)
+        else:
+            return
+        if len(self.prices) > self.max_len:
+            self.prices.pop(0)
+
+        if len(self.prices) >= max(fast_interval, slow_interval):
+            fast = np.mean(self.prices[-fast_interval:])
+            slow = np.mean(self.prices[-slow_interval:])
+            self.total_fast.append(fast)
+            self.total_slow.append(slow)
+            k, d, j = kdj(self.prices[-9:], self.last_k, self.last_d)
+            self.last_k = k
+            self.last_d = d
+
+            if self.status is not None:
+                self.last_status = self.status
+            if fast < slow * (1-gap) and k < k_min:
+                self.status = 'long'
+            elif fast > slow*(1+gap) or k > k_max:
+                self.status = 'short'
+            else:
+                self.status = None
+
+            coin_symbol = "ETH"
+            order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+
+            if self.action is not None:
+                self.last_action = self.action
+            if self.last_status == 'short' and self.status == 'long':
+                self.action = 'buy'
+            elif self.last_status == 'long' and \
+                 self.status == 'short' and \
+                 self.last_action == 'buy':
+                price = self.manager.get_alt_tick("ETHUSDT")
+                if price > self.prices_trade[-1]:
+                    self.action = 'sell'
+            else:
+                self.action = None
+
+            if self.action is not None and self.action != self.last_action:
+                singal = (self.action, coin_symbol, order_quantity)
+                self.simple_trader(singal)
+                if self.action == 'sell':
+                    print(f'trade times {self.trade_times}')
+
+    def slow_fast_ma_kdj_trade(self):
+        ma_lenth1 = 7 * 15
+        ma_lenth2 = 99 * 15
+        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        if cur_price is not None:
+            self.prices.append(cur_price)
+        else:
+            return
+        if len(self.prices) > self.max_len:
+            self.prices.pop(0)
+
+        if len(self.prices) >= max(ma_lenth1, ma_lenth2):
+            ma1 = np.mean(self.prices[-ma_lenth1:])
+            ma2 = np.mean(self.prices[-ma_lenth2:])
+
+            if self.status:
+                k, d, j = kdj(self.prices[-9:], self.last_k, self.last_d)
+                self.last_k = k
+                self.last_d = d
+                if ma1 > ma2 and k <= 65:
+                    if self.status == 'sell':
+                        altcoin = self.db.get_coin("ETH")
+                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+                        self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
+                    self.status = 'buy'
+                elif k > 85:
+                    if self.status == 'buy':
+                        altcoin = self.db.get_coin("ETH")
+                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
+                        self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
+                    self.status = 'sell'
+            else:
+                self.status = 'buy' if ma1 > ma2 else 'sell'
+
+
+    def slow_fast_ma_trade(self):
+        ma_lenth1 = 7 * 15
+        ma_lenth2 = 99 * 15
+        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        if cur_price is not None:
+            self.prices.append(cur_price)
+        else:
+            return
         if len(self.prices) > self.max_len:
             self.prices.pop(0)
 

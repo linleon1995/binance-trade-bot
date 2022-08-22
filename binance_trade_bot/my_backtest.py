@@ -171,7 +171,7 @@ def backtest(
     logger = Logger("backtesting", enable_notifications=False)
     # TODO: set level to warning to avoid info
     import logging
-    # logger.Logger.setLevel(logging.WARNING)
+    logger.Logger.setLevel(logging.WARNING)
 
     end_date = end_date or datetime.today()
 
@@ -208,6 +208,13 @@ def backtest(
             if n % yield_interval == 0:
                 yield manager
             n += 1
+        total_slow = trader.total_slow
+        total_fast = trader.total_fast
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(1, 1)
+        ax.plot(total_slow)
+        ax.plot(total_fast)
+        fig.savefig('plot/ma_slow_fast.png')
     except KeyboardInterrupt:
         pass
     cache.close()

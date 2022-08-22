@@ -14,8 +14,8 @@ if __name__ == "__main__":
     history = []
     profit = []
     idx = 0
-    start_time = datetime(2021, 1, 1)
-    end_time = datetime(2022, 1, 1)
+    start_time = datetime(2022, 8, 15)
+    end_time = datetime(2022, 8, 19)
     # end_time = datetime.now()
     init_time = start_time
     start_year = start_time.year
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     save_dir = 'plot/ma/2021'
     os.makedirs(save_dir, exist_ok=True)
     no_strategy_profit = []
-    for manager in backtest(start_time, end_time):
+    for manager in backtest(start_time, end_time, interval=15, yield_interval=1):
         btc_value = manager.collate_coins("BTC")
         bridge_value = manager.collate_coins(manager.config.BRIDGE.symbol)
         history.append((btc_value, bridge_value))
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         print("------")
         print("TIME:", manager.datetime)
         print("BALANCES:", manager.balances)
-        print("BTC VALUE:", btc_value, f"({btc_diff}%)")
+        # print("BTC VALUE:", btc_value, f"({btc_diff}%)")
         print(f"{manager.config.BRIDGE.symbol} VALUE:", bridge_value, f"({bridge_diff}%)")
         print("------")
         
@@ -72,7 +72,8 @@ if __name__ == "__main__":
         # if idx == 591:
         #     print(3)
         cur_month = manager.datetime.month
-        if cur_month > start_month:
+        if True:
+        # if cur_month > start_month:
         # if idx%100==0 and idx>0:
             fig, ax = plt.subplots(1,1)
             line1, = ax.plot(profit, label='strategy')
@@ -80,7 +81,7 @@ if __name__ == "__main__":
             ax.legend(handles=[line1, line2])
             # ax.legend(['strategy', 'no_strategy'])
             
-            filename = f'ma-ETHUSDT-{start_year}_{start_month}-{end_year}_{end_month}.png'
+            filename = f'ma-ETHUSDT-{start_year}_{start_month}-{end_year}_{end_month}_min_slowfast_kdj_new_7_99.png'
             fig.savefig(os.path.join(save_dir, filename))
             # plt.show()
             month_profit[start_month] = profit[-1] - profit[0]
