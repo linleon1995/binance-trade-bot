@@ -14,8 +14,8 @@ if __name__ == "__main__":
     history = []
     profit = []
     idx = 0
-    start_time = datetime(2022, 8, 15)
-    end_time = datetime(2022, 8, 19)
+    start_time = datetime(2022, 8, 21)
+    end_time = datetime(2022, 8, 26)
     # end_time = datetime.now()
     init_time = start_time
     start_year = start_time.year
@@ -81,7 +81,7 @@ if __name__ == "__main__":
             ax.legend(handles=[line1, line2])
             # ax.legend(['strategy', 'no_strategy'])
             
-            filename = f'ma-ETHUSDT-{start_year}_{start_month}-{end_year}_{end_month}_min_slowfast_kdj_new_7_99.png'
+            filename = f'ma-ETHUSDT-{start_year}_{start_month}-{end_year}_{end_month}_min_slowfast_7_99.png'
             fig.savefig(os.path.join(save_dir, filename))
             # plt.show()
             month_profit[start_month] = profit[-1] - profit[0]

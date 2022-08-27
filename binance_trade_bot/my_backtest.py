@@ -2,6 +2,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from traceback import format_exc
 from typing import Dict
+import matplotlib.pyplot as plt
+from pprint import pprint
 
 from sqlitedict import SqliteDict
 
@@ -210,12 +212,14 @@ def backtest(
             n += 1
         total_slow = trader.total_slow
         total_fast = trader.total_fast
-        import matplotlib.pyplot as plt
+        
         fig, ax = plt.subplots(1, 1)
         ax.plot(total_slow)
         ax.plot(total_fast)
         fig.savefig('plot/ma_slow_fast.png')
     except KeyboardInterrupt:
         pass
+    
+    pprint(trader.trade_record)
     cache.close()
     return manager
