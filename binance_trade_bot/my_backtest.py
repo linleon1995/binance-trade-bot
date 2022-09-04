@@ -196,7 +196,7 @@ def backtest(
     trader = strategy(manager, db, logger, config)
     trader.initialize()
 
-    yield manager
+    yield manager, trader
 
     n = 1
     print(n)
@@ -208,7 +208,7 @@ def backtest(
                 logger.warning(format_exc())
             manager.increment(interval)
             if n % yield_interval == 0:
-                yield manager
+                yield manager, trader
             n += 1
         total_slow = trader.total_slow
         total_fast = trader.total_fast
@@ -219,7 +219,7 @@ def backtest(
         fig.savefig('plot/ma_slow_fast.png')
     except KeyboardInterrupt:
         pass
-    
+
     pprint(trader.trade_record)
     cache.close()
-    return manager
+    return manager, trader
