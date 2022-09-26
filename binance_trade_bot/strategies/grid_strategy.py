@@ -44,9 +44,8 @@ class Strategy(AutoTrader):
         self.total_mid = []
         self.total_slow = []
         self.trade_record = {}
-        # FIXME: CURRENT_COIN_SYMBOL can get 'ETH' should define outside
-        self.pair = ('ETH', 'USDT')
-
+        self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
+        
     def scout(self):
         # Get
         # self.slow_fast_ma_trade()
@@ -70,7 +69,7 @@ class Strategy(AutoTrader):
         sell_margin = 0.1
         ma_lenth = 25
 
-        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        cur_price = self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}')
         if cur_price is not None:
             self.prices.append(cur_price)
         else:
@@ -83,7 +82,7 @@ class Strategy(AutoTrader):
 
         if not self.status:
             if cur_price < ma*(1-buy_margin):
-                altcoin = self.db.get_coin("ETH")
+                altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
                 order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
                 self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
                 # TODO: sell if earn money (not nessecary)
@@ -91,7 +90,7 @@ class Strategy(AutoTrader):
                 self.status = True
         else:
             if cur_price >= ma*(1+sell_margin) and cur_price > buy_price:
-                altcoin = self.db.get_coin("ETH")
+                altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
                 order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
                 self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
                 self.status = False
@@ -125,11 +124,20 @@ class Strategy(AutoTrader):
         if len(self.prices) > self.max_len:
             self.prices.pop(0)
 
+    def stop_trading(self, cur_price, last_trade_price, hard_stop):
+        if self.last_action == 'buy':
+            cur_earn = (cur_price-last_trade_price) / last_trade_price
+            if cur_earn < hard_stop:
+                self.action = 'sell'
+
     def speed(self):
-        buy_speed = 0.01
-        sell_speed = 0.015
+        buy_speed = 0.05
+        sell_speed = 0.04
         seq_len = 8
         order_ratio = 1.0
+        # earn_rate = -2
+        earn_rate = 0.15
+        hard_sell_rate = -0.07
 
         pair_str = f"{self.pair[0]}{self.pair[1]}"
         if self.action is not None:
@@ -147,10 +155,20 @@ class Strategy(AutoTrader):
             r = (price - past_price) / past_price
             if r > buy_speed:
                 self.action = 'buy'
-            if r < -sell_speed and \
+            # if r < sell_speed and \
+            #    self.last_action == 'buy':
+            if r < sell_speed and \
                self.last_action == 'buy' and \
-               price > last_trade_info['price']*1.01:
+               price > last_trade_info['price']*(1+earn_rate):
                 self.action = 'sell'
+                self.prices = [price]
+
+            # # TODO: INcorrect: 
+            # if self.last_action == 'buy':
+            #     if r < hard_sell_rate:
+            #         self.action = 'sell'
+            if len(trade_record_list) > 0:
+                self.stop_trading(price, last_trade_info['price'], hard_sell_rate)
             # if len(trade_record_list) > 0:
             #     if price < last_trade_info['price']*1.2:
             #         self.action = 'sell'
@@ -181,6 +199,7 @@ class Strategy(AutoTrader):
         order_ratio = 1.0
         # FIXME: 100000 for testing change back to 0.05
         surrender_ratio = 100000
+        earn_rate = 0.02
         pair_str = f"{self.pair[0]}{self.pair[1]}"
 
         cur_price = self.manager.get_ticker_price(pair_str)
@@ -236,7 +255,7 @@ class Strategy(AutoTrader):
             elif self.last_status == 'long' and \
                  self.status == 'short' and \
                  self.last_action == 'buy'and \
-                 price > last_trade_info['price']*1.05:
+                 price > last_trade_info['price']*(1+earn_rate):
                 self.action = 'sell'
             else:
                 self.action = None
@@ -261,46 +280,10 @@ class Strategy(AutoTrader):
                 if self.action == 'sell':
                     print(f'trade times {self.trade_times}')
 
-
-    def slow_fast_ma_kdj_trade(self):
-        ma_lenth1 = 7 * 15
-        ma_lenth2 = 99 * 15
-        cur_price = self.manager.get_ticker_price("ETHUSDT")
-        if cur_price is not None:
-            self.prices.append(cur_price)
-        else:
-            return
-        if len(self.prices) > self.max_len:
-            self.prices.pop(0)
-
-        if len(self.prices) >= max(ma_lenth1, ma_lenth2):
-            ma1 = np.mean(self.prices[-ma_lenth1:])
-            ma2 = np.mean(self.prices[-ma_lenth2:])
-
-            if self.status:
-                k, d, j = kdj(self.prices[-9:], self.last_k, self.last_d)
-                self.last_k = k
-                self.last_d = d
-                if ma1 > ma2 and k <= 65:
-                    if self.status == 'sell':
-                        altcoin = self.db.get_coin("ETH")
-                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
-                        self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
-                    self.status = 'buy'
-                elif k > 85:
-                    if self.status == 'buy':
-                        altcoin = self.db.get_coin("ETH")
-                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
-                        self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
-                    self.status = 'sell'
-            else:
-                self.status = 'buy' if ma1 > ma2 else 'sell'
-
-
     def slow_fast_ma_trade(self):
         ma_lenth1 = 7 * 15
         ma_lenth2 = 99 * 15
-        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        cur_price = self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}')
         if cur_price is not None:
             self.prices.append(cur_price)
         else:
@@ -316,14 +299,14 @@ class Strategy(AutoTrader):
                 if ma1 > ma2:
                 # if ma1 > ma2 and (ma1-ma2)/ma2>0.5:
                     if self.status == 'sell':
-                        altcoin = self.db.get_coin("ETH")
+                        altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
                         order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
                         self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
                     self.status = 'buy'
                 else:
                 # elif ma1 < ma2 and (ma2-ma1)/ma1>0.5:
                     if self.status == 'buy':
-                        altcoin = self.db.get_coin("ETH")
+                        altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
                         order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
                         self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
                     self.status = 'sell'
@@ -332,14 +315,14 @@ class Strategy(AutoTrader):
 
             # print(self.manager.datetime, self.status)
 
-        # print(time.ctime(time.time()), self.manager.get_ticker_price("ETHUSDT"))
+        # print(time.ctime(time.time()), self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}'))
     def moving_average(self, x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
 
     def backtest_and_plot_ma(self):
         N = 2000
         # m = self.get_
-        cur_price = self.manager.get_ticker_price("ETHUSDT")
+        cur_price = self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}')
         self.prices.append(cur_price)
         cur_len = len(self.prices)
         # if cur_len > self.max_len:

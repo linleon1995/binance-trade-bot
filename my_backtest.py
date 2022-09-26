@@ -14,30 +14,35 @@ if __name__ == "__main__":
     history = []
     profit = []
     idx = 0
-    start_time = datetime(2022, 7, 14)
-    end_time = datetime(2022, 7, 21)
+    # TODO: long time
+    start_time = datetime(2021, 7, 28)
+    end_time = datetime(2022, 7, 28)
     save_time = 2 # day
     days = [start_time.day]
     pic_start = 0
     # end_time = datetime.now()
+    start_time_str = datetime.strftime(start_time, r'%Y%m%d%H%M')
+    end_time_str = datetime.strftime(end_time, r'%Y%m%d%H%M')
     init_time = start_time
     start_year = start_time.year
     start_month = start_time.month
     end_year = end_time.year
     end_month = end_time.month
     month_profit = {}
-    save_dir = 'plot/ma/2021/surr_5_no_sur_15min_buy_speed'
-    os.makedirs(save_dir, exist_ok=True)
     no_strategy_profit = []
     total_time = []
     for manager, trader in backtest(start_time, end_time, interval=15, yield_interval=1):
+        pair_str = f'{manager.config.CURRENT_COIN_SYMBOL}{manager.config.BRIDGE.symbol}'
+        save_dir = f'plot/{pair_str}/speed_15min_BHSH_winsell_or'
+        os.makedirs(save_dir, exist_ok=True)
+
         btc_value = manager.collate_coins("BTC")
         bridge_value = manager.collate_coins(manager.config.BRIDGE.symbol)
         history.append((btc_value, bridge_value))
 
         # TODO: this is not precise, we should also get the current bridge price
         
-        target_price =  manager.get_ticker_price('ETHUSDT')
+        target_price =  manager.get_ticker_price(pair_str)
         if target_price is not None:
             last_target_price = target_price
         else:
@@ -76,10 +81,10 @@ if __name__ == "__main__":
         profit.append(bridge_diff)
         print(idx)
         
-        if len(days) % save_time == 0 and total_time[-1].day != total_time[-2].day:
-            pic_time = total_time[pic_start:]
-            pic_profit = profit[pic_start:]
-            pic_no_strategy = no_strategy_profit[pic_start:]
+        if len(days) % (save_time+1) == 0 and total_time[-1].day != total_time[-2].day:
+            pic_time = total_time[pic_start:-1]
+            pic_profit = profit[pic_start:-1]
+            pic_no_strategy = no_strategy_profit[pic_start:-1]
             pic_start = len(total_time)
 
             # XXX: plot fig to a single function for reusing
@@ -100,8 +105,13 @@ if __name__ == "__main__":
                     pic_ax.plot([trade_time, trade_time], [min_val, max_val], color)
 
             pic_ax.legend(handles=[line1, line2])
-            record_day = total_time[-1].day
-            filename = f'ma-ETHUSDT-{start_year}_{start_month}-{end_year}_{end_month}_min_slowfast_7_99_{record_day}.png'
+            pic_start_time = pic_time[0]
+            pic_end_time = pic_time[-1]
+            pic_start_time_str = datetime.strftime(pic_start_time, r'%Y%m%d%H%M')
+            pic_end_time_str = datetime.strftime(pic_end_time, r'%Y%m%d%H%M')
+
+            # time_str = f'{start_year}_{start_month}_{start_day}-{end_year}_{end_month}_{end_day}'
+            filename = f'pic-{pic_start_time_str}-{pic_end_time_str}.png'
             pic_fig.savefig(os.path.join(save_dir, filename))
             plt.close(pic_fig)
 
@@ -125,7 +135,8 @@ if __name__ == "__main__":
             ax.legend(handles=[line1, line2])
             # ax.legend(['strategy', 'no_strategy'])
             
-            filename = f'ma-ETHUSDT-{start_year}_{start_month}-{end_year}_{end_month}_min_slowfast_7_99_surr.png'
+            # time_str = f'{start_year}_{start_month}-{end_year}_{end_month}'
+            filename = f'total-{start_time_str}-{end_time_str}.png'
             fig.savefig(os.path.join(save_dir, filename))
             # plt.show()
             plt.close(fig)
