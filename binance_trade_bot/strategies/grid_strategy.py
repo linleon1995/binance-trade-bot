@@ -32,7 +32,7 @@ class Strategy(AutoTrader):
         self.initialize_current_coin()
         self.prices = []
         # self.prices_trade = []
-        self.max_len = 2000
+        self.max_len = 1000
         self.status = None
         self.last_status = None
         self.action = None
@@ -131,12 +131,20 @@ class Strategy(AutoTrader):
                 self.action = 'sell'
 
     def speed(self):
-        buy_speed = 0.05
-        sell_speed = 0.04
+
+        b = 10e-5
+        s = -10e-5
+        # b = 4
+        # s = -4
+        # b = 0.04
+        # s = -0.04
+        buy_speed = b
+        sell_speed = s
         seq_len = 8
+        long_seq_len = 12 * seq_len
         order_ratio = 1.0
-        # earn_rate = -2
-        earn_rate = 0.15
+        earn_rate = 0.01
+        # earn_rate = 0.15
         hard_sell_rate = -0.07
 
         pair_str = f"{self.pair[0]}{self.pair[1]}"
@@ -149,10 +157,27 @@ class Strategy(AutoTrader):
         trade_record_list = list(self.trade_record.values())
         if len(trade_record_list) > 0:
             last_trade_info = trade_record_list[-1]
-            
+
+        # if len(self.prices) > long_seq_len+1:  
+        #     long_past_price = self.prices[-long_seq_len]
+        #     long_r = (price - long_past_price) / long_past_price
+        #     if long_r > 0:
+        #         buy_speed = b
+        #         sell_speed = s
+        #     else:
+        #         buy_speed = s
+        #         sell_speed = b
+
         if len(self.prices) > seq_len+1:
-            past_price = self.prices[-seq_len]
-            r = (price - past_price) / past_price
+            # past_price = self.prices[-seq_len]
+
+            lag_prices = self.prices.copy()
+            mometum = (np.array(self.prices[seq_len:])-np.array(lag_prices[:-seq_len])) / seq_len
+            mometum = np.concatenate([np.zeros(seq_len+1), mometum])
+            r = mometum[-1]
+            print(f'r: {r}')
+
+            # r = (price - past_price) / past_price
             if r > buy_speed:
                 self.action = 'buy'
             # if r < sell_speed and \
@@ -161,7 +186,9 @@ class Strategy(AutoTrader):
                self.last_action == 'buy' and \
                price > last_trade_info['price']*(1+earn_rate):
                 self.action = 'sell'
-                self.prices = [price]
+                # TODO: This is the reset to avoid over-trading
+                # but will cause the bad result when plotting
+                # self.prices = [price]  
 
             # # TODO: INcorrect: 
             # if self.last_action == 'buy':
