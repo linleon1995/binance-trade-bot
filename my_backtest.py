@@ -1,7 +1,9 @@
 from logging import handlers
 import os
-import matplotlib.pyplot as plt
 from datetime import datetime
+
+import numpy as np
+import matplotlib.pyplot as plt
 from binance_trade_bot import backtest
 # TODO: stop condition
 # TODO: record more information
@@ -15,8 +17,8 @@ if __name__ == "__main__":
     profit = []
     idx = 0
     # TODO: long time
-    start_time = datetime(2021, 7, 28)
-    end_time = datetime(2022, 7, 28)
+    start_time = datetime(2022, 10, 25)
+    end_time = datetime(2022, 11, 6)
     save_time = 2 # day
     days = [start_time.day]
     pic_start = 0
@@ -33,7 +35,7 @@ if __name__ == "__main__":
     total_time = []
     for manager, trader in backtest(start_time, end_time, interval=15, yield_interval=1):
         pair_str = f'{manager.config.CURRENT_COIN_SYMBOL}{manager.config.BRIDGE.symbol}'
-        save_dir = f'plot/{pair_str}/speed_15min_BHSH_winsell_or'
+        save_dir = f'plot/{pair_str}/speed_15min_reverse_new'
         os.makedirs(save_dir, exist_ok=True)
 
         btc_value = manager.collate_coins("BTC")
@@ -116,12 +118,35 @@ if __name__ == "__main__":
             plt.close(pic_fig)
 
         cur_month = manager.datetime.month
+        
+        # XXX:
+        # FIXME: data_length problem
+        # FIXME:  mometums = [total_time, total_time, total_time]
+        mometums = [total_time, total_time, total_time]
+        mometum_2nd = total_time
+        if len(trader.prices) > 50:
+            mometums = []
+            for x in [8, 16, 24]:
+                lag_prices = trader.prices.copy()
+                mometum = (np.array(trader.prices[x:])-np.array(lag_prices[:-x])) / x
+                mometum = np.concatenate([np.zeros(x+1), mometum])
+                mometums.append(mometum)
+
+            x = 8
+            mometum = mometums[0]
+            lag_prices = mometum.copy()
+            mometum_2nd = (np.array(mometum[x:])-np.array(lag_prices[:-x])) / x
+            mometum_2nd = np.concatenate([np.zeros(x), mometum_2nd])
+
         if True:
-        # if cur_month > start_month:
-        # if idx%100==0 and idx>0:
             fig, ax = plt.subplots(1,1)
             line1, = ax.plot(total_time, profit, label='strategy')
             line2, = ax.plot(total_time, no_strategy_profit, label='no_strategy')
+            line3, = ax.plot(total_time, mometums[0], label='1st_momentum (m=8)')
+            # line4, = ax.plot(total_time, mometums[1], label='m=16')
+            # line5, = ax.plot(total_time, mometum_2nd, label='2nd_momentum (m=8)')
+            # line5, = ax.plot(total_time, mometums[2], label='m=24')
+            ax.grid(True)
             fig.autofmt_xdate()
             
             min_val = min(profit)
@@ -132,7 +157,8 @@ if __name__ == "__main__":
                 color = 'g' if action == 'buy' else 'r'
                 ax.plot([trade_time, trade_time], [min_val, max_val], color)
 
-            ax.legend(handles=[line1, line2])
+            ax.legend(handles=[line1, line2, line3])
+            # ax.legend(handles=[line1, line2, line3, line4, line5])
             # ax.legend(['strategy', 'no_strategy'])
             
             # time_str = f'{start_year}_{start_month}-{end_year}_{end_month}'
