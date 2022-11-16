@@ -17,8 +17,8 @@ if __name__ == "__main__":
     profit = []
     idx = 0
     # TODO: long time
-    start_time = datetime(2022, 10, 25)
-    end_time = datetime(2022, 11, 6)
+    start_time = datetime(2022, 11, 1)
+    end_time = datetime(2022, 11, 13)
     save_time = 2 # day
     days = [start_time.day]
     pic_start = 0
@@ -128,7 +128,7 @@ if __name__ == "__main__":
             mometums = []
             for x in [8, 16, 24]:
                 lag_prices = trader.prices.copy()
-                mometum = (np.array(trader.prices[x:])-np.array(lag_prices[:-x])) / x
+                mometum = ((np.array(trader.prices[x:])-np.array(lag_prices[:-x]))/np.array(lag_prices[:-x]))
                 mometum = np.concatenate([np.zeros(x+1), mometum])
                 mometums.append(mometum)
 
@@ -142,7 +142,7 @@ if __name__ == "__main__":
             fig, ax = plt.subplots(1,1)
             line1, = ax.plot(total_time, profit, label='strategy')
             line2, = ax.plot(total_time, no_strategy_profit, label='no_strategy')
-            line3, = ax.plot(total_time, mometums[0], label='1st_momentum (m=8)')
+            # line3, = ax.plot(total_time, mometums[0], label='1st_momentum (m=8)')
             # line4, = ax.plot(total_time, mometums[1], label='m=16')
             # line5, = ax.plot(total_time, mometum_2nd, label='2nd_momentum (m=8)')
             # line5, = ax.plot(total_time, mometums[2], label='m=24')
@@ -157,7 +157,8 @@ if __name__ == "__main__":
                 color = 'g' if action == 'buy' else 'r'
                 ax.plot([trade_time, trade_time], [min_val, max_val], color)
 
-            ax.legend(handles=[line1, line2, line3])
+            ax.legend(handles=[line1, line2])
+            # ax.legend(handles=[line3])
             # ax.legend(handles=[line1, line2, line3, line4, line5])
             # ax.legend(['strategy', 'no_strategy'])
             

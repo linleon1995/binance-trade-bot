@@ -45,6 +45,9 @@ class Strategy(AutoTrader):
         self.total_slow = []
         self.trade_record = {}
         self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
+        self.buy_speed = 0.01
+        self.sell_speed = -0.08
+        self.growth = 1.0
         
     def scout(self):
         # Get
@@ -132,14 +135,14 @@ class Strategy(AutoTrader):
 
     def speed(self):
 
-        b = 10e-5
-        s = -10e-5
+        # b = 10e-5
+        # s = -10e-5
         # b = 4
         # s = -4
-        # b = 0.04
+        # b = 0.01
         # s = -0.04
-        buy_speed = b
-        sell_speed = s
+        buy_speed = self.buy_speed * self.growth
+        sell_speed = self.sell_speed
         seq_len = 8
         long_seq_len = 12 * seq_len
         order_ratio = 1.0
@@ -172,7 +175,7 @@ class Strategy(AutoTrader):
             # past_price = self.prices[-seq_len]
 
             lag_prices = self.prices.copy()
-            mometum = (np.array(self.prices[seq_len:])-np.array(lag_prices[:-seq_len])) / seq_len
+            mometum = (np.array(self.prices[seq_len:])-np.array(lag_prices[:-seq_len])) / np.array(lag_prices[:-seq_len])
             mometum = np.concatenate([np.zeros(seq_len+1), mometum])
             r = mometum[-1]
             print(f'r: {r}')
@@ -180,6 +183,7 @@ class Strategy(AutoTrader):
             # r = (price - past_price) / past_price
             if r > buy_speed:
                 self.action = 'buy'
+                self.growth *= 1.5
             # if r < sell_speed and \
             #    self.last_action == 'buy':
             if r < sell_speed and \

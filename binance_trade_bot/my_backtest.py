@@ -210,13 +210,13 @@ def backtest(
             if n % yield_interval == 0:
                 yield manager, trader
             n += 1
-        total_slow = trader.total_slow
-        total_fast = trader.total_fast
+        # total_slow = trader.total_slow
+        # total_fast = trader.total_fast
         
-        fig, ax = plt.subplots(1, 1)
-        ax.plot(total_slow)
-        ax.plot(total_fast)
-        fig.savefig('plot/ma_slow_fast.png')
+        # fig, ax = plt.subplots(1, 1)
+        # ax.plot(total_slow)
+        # ax.plot(total_fast)
+        # fig.savefig('plot/ma_slow_fast.png')
     except KeyboardInterrupt:
         pass
 
