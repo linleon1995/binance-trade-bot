@@ -2,6 +2,7 @@ from logging import handlers
 import os
 from datetime import datetime
 
+
 import numpy as np
 import matplotlib.pyplot as plt
 from binance_trade_bot import backtest
