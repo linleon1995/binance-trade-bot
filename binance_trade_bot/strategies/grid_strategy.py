@@ -32,7 +32,7 @@ class Strategy(AutoTrader):
         self.initialize_current_coin()
         self.prices = []
         # self.prices_trade = []
-        self.max_len = 1000
+        self.max_len = 10000
         self.status = None
         self.last_status = None
         self.action = None
@@ -45,34 +45,31 @@ class Strategy(AutoTrader):
         self.total_slow = []
         self.trade_record = {}
         self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
+        
         self.buy_speed = 0.01
         self.sell_speed = -0.08
         self.growth = 1.0
         
+        self.min_price = 100000
+        self.max_price = -100000
+        self.max_gap = None
+        self.buy_event_count = None
+        
     def scout(self):
         # Get
-        # self.slow_fast_ma_trade()
-        # self.slow_fast_ma_kdj_trade()
-        # self.slow_fast_ma_kdj_trade_new()
         self.speed()
         # self.simple_ma_trade()
     
-    def grid_strategy_trade(self):
-        # TODO: bridge coin
-        # TODO: fit buy_alt api
-        # TODO: amount for each trade
-        # TODO: leverage --> this is about Binance API , can think later
-        buy_thrshold = 0.7
-        sell_threshold = -0.7
-        end_trade_ratio_threshold = 0.8 # [0, 1] ma change more than threshold then end trade
-        
-    def simple_ma_trade(self):
-        use_margin = True
-        buy_margin = 0.1
-        sell_margin = 0.1
-        ma_lenth = 25
-
-        cur_price = self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}')
+    def record_prices(self, pair_str):
+        cur_price = self.manager.get_ticker_price(pair_str)
+        if cur_price < self.min_price:
+            self.min_price = cur_price
+            self.max_gap = (self.max_price-self.min_price) / self.min_price
+            
+        if cur_price > self.max_price:
+            self.max_price = cur_price
+            self.max_gap = (self.max_price-self.min_price) / self.min_price
+            
         if cur_price is not None:
             self.prices.append(cur_price)
         else:
@@ -80,24 +77,20 @@ class Strategy(AutoTrader):
         if len(self.prices) > self.max_len:
             self.prices.pop(0)
 
-        if len(self.prices) >= ma_lenth:
-            ma = np.mean(self.prices[-ma_lenth:])
+    def stop_trading(self, cur_price, last_trade_price, hard_stop):
+        if self.last_action == 'buy':
+            cur_earn = (cur_price-last_trade_price) / last_trade_price
+            if cur_earn < hard_stop:
+                self.action = 'sell'
 
-        if not self.status:
-            if cur_price < ma*(1-buy_margin):
-                altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
-                order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
-                self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
-                # TODO: sell if earn money (not nessecary)
-                buy_price = cur_price
-                self.status = True
-        else:
-            if cur_price >= ma*(1+sell_margin) and cur_price > buy_price:
-                altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
-                order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
-                self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
-                self.status = False
-
+    def get_earn_rate(self, seq, length):
+        lag_seq = seq.copy()
+        seq1 = np.array(seq[length:])
+        seq2 = np.array(lag_seq[:-length])
+        seq_diff = (seq1-seq2) / seq2
+        r = seq_diff[-1]
+        return r
+        
     def simple_trader(self, signal):
         trade, pair, quant = signal
         altcoin = self.db.get_coin(pair[0])
@@ -117,38 +110,21 @@ class Strategy(AutoTrader):
             'pair': pair_str
         }
         # self.prices_trade.append(price)
-
-    def record_prices(self, pair_str):
-        cur_price = self.manager.get_ticker_price(pair_str)
-        if cur_price is not None:
-            self.prices.append(cur_price)
-        else:
-            return
-        if len(self.prices) > self.max_len:
-            self.prices.pop(0)
-
-    def stop_trading(self, cur_price, last_trade_price, hard_stop):
-        if self.last_action == 'buy':
-            cur_earn = (cur_price-last_trade_price) / last_trade_price
-            if cur_earn < hard_stop:
-                self.action = 'sell'
-
+        
     def speed(self):
-
-        # b = 10e-5
-        # s = -10e-5
-        # b = 4
-        # s = -4
-        # b = 0.01
-        # s = -0.04
-        buy_speed = self.buy_speed * self.growth
-        sell_speed = self.sell_speed
-        seq_len = 8
-        long_seq_len = 12 * seq_len
+        buy_speed = self.config.BUY_SPEED * self.growth
+        sell_speed = self.config.SELL_SPEED
+        long_buy_speed = 1.5 * buy_speed
+        long_sell_speed = 1.5 * sell_speed
+        seq_len = int(self.config.SEQ_LEN)
+        mid_seq_len = 12 * seq_len
+        long_seq_len = 48 * seq_len
+        max_seq_len = max([seq_len, mid_seq_len, long_seq_len])
         order_ratio = 1.0
-        earn_rate = 0.01
+        earn_rate = 2
+        bonus = 1.1
         # earn_rate = 0.15
-        hard_sell_rate = -0.07
+        hard_sell_rate = -0.1
 
         pair_str = f"{self.pair[0]}{self.pair[1]}"
         if self.action is not None:
@@ -171,25 +147,60 @@ class Strategy(AutoTrader):
         #         buy_speed = s
         #         sell_speed = b
 
-        if len(self.prices) > seq_len+1:
-            # past_price = self.prices[-seq_len]
+        if len(self.prices) > max_seq_len+1:
+            r = self.get_earn_rate(self.prices, seq_len)
+            mid_r = self.get_earn_rate(self.prices, mid_seq_len)
+            long_r = self.get_earn_rate(self.prices, long_seq_len)
+            print(f'ratio: {r}')
+            # if self.buy_event_count is not None:
+                # self.buy_event_count += 1
+            
+            # if long_r > 0:
+            #     power = 1
+            # else:
+            #     power = 1.5
+                
+            if long_r > 0:
+                if r > buy_speed and \
+                   mid_r > buy_speed*bonus and \
+                   long_r > buy_speed*(bonus**2):
+                    self.action = 'buy'
+                    # self.buy_event_count = 0
+                    
 
-            lag_prices = self.prices.copy()
-            mometum = (np.array(self.prices[seq_len:])-np.array(lag_prices[:-seq_len])) / np.array(lag_prices[:-seq_len])
-            mometum = np.concatenate([np.zeros(seq_len+1), mometum])
-            r = mometum[-1]
-            print(f'r: {r}')
-
-            # r = (price - past_price) / past_price
-            if r > buy_speed:
-                self.action = 'buy'
-                self.growth *= 1.5
-            # if r < sell_speed and \
+            # if self.last_action == 'buy':
+            #     last_trade_price = trade_record_list[-1]['price']
+            #     cur_r = (price-last_trade_price) / last_trade_price
+            #     if cur_r < hard_sell_rate:
+            #         self.action = 'sell'
+            
+            if self.last_action == 'buy':
+                last_buy_price = list(self.trade_record.values())[-1]['price']
+                if price > (1+0.02)*last_buy_price:
+                    if long_r < 0:
+                        if r < sell_speed and \
+                        mid_r < sell_speed*bonus and \
+                        long_r < sell_speed*(bonus**2):
+                            self.action = 'sell'
+                    
+                    
+            # if self.last_action == 'buy':
+            #     if mid_r < sell_speed:
+            #         self.action = 'sell'
+                    
+            # if mid_r < sell_speed and \
             #    self.last_action == 'buy':
-            if r < sell_speed and \
-               self.last_action == 'buy' and \
-               price > last_trade_info['price']*(1+earn_rate):
-                self.action = 'sell'
+            #     self.action = 'sell'
+                
+            # if long_r < long_sell_speed and \
+            #    self.last_action == 'buy':
+            #     self.action = 'sell'
+                
+            # if self.buy_event_count is not None:
+            #     if r < 0 and self.buy_event_count > 4*mid_seq_len:
+            #         self.action = 'sell'
+            #         self.buy_event_count = None
+                
                 # TODO: This is the reset to avoid over-trading
                 # but will cause the bad result when plotting
                 # self.prices = [price]  
@@ -218,135 +229,8 @@ class Strategy(AutoTrader):
             self.simple_trader(singal)
             if self.action == 'sell':
                 print(f'trade times {self.trade_times}')
-
-
-    def slow_fast_ma_kdj_trade_new(self):
-        fast_interval = 7
-        mid_interval = 25
-        slow_interval = 99
-        gap = 0.005
-        k_min = 65
-        k_max = 80
-        order_ratio = 1.0
-        # FIXME: 100000 for testing change back to 0.05
-        surrender_ratio = 100000
-        earn_rate = 0.02
-        pair_str = f"{self.pair[0]}{self.pair[1]}"
-
-        cur_price = self.manager.get_ticker_price(pair_str)
-        if cur_price is not None:
-            self.prices.append(cur_price)
-        else:
-            return
-        if len(self.prices) > self.max_len:
-            self.prices.pop(0)
-
-        if len(self.prices) >= max(fast_interval, slow_interval):
-            fast = np.mean(self.prices[-fast_interval:])
-            mid = np.mean(self.prices[-mid_interval:])
-            slow = np.mean(self.prices[-slow_interval:])
-            self.total_fast.append(fast)
-            self.total_mid.append(mid)
-            self.total_slow.append(slow)
-            # k, d, j = kdj(self.prices[-9:], self.last_k, self.last_d)
-            # self.last_k = k
-            # self.last_d = d
-
-            if self.status is not None:
-                self.last_status = self.status
-            if fast > slow * (1+gap):
-                self.status = 'long'
-            if fast-mid <= mid * (0.002):
-                self.status = 'short'
-            # else:
-            #     self.status = None
-
-            if self.action is not None:
-                self.last_action = self.action
-
-
-            price = self.manager.get_ticker_price(pair_str)
-            trade_record_list = list(self.trade_record.values())
-            if len(trade_record_list) > 0:
-                last_trade_info = trade_record_list[-1]
-                
-            # speed = 0.1
-            # seq_len = 8
-            # if len(trade_record_list) > seq_len+1:
-            #     past_price = trade_record_list[-seq_len]['price']
-            #     r = (price - past_price) / past_price
-            #     if r > speed and self.last_action == 'sell':
-            #         self.action = 'buy'
-            #     if r < -speed and self.last_action == 'buy':
-            #         self.action = 'sell'
-
-            # Get trading action
-            if self.last_status == 'short' and self.status == 'long':
-                self.action = 'buy'
-            elif self.last_status == 'long' and \
-                 self.status == 'short' and \
-                 self.last_action == 'buy'and \
-                 price > last_trade_info['price']*(1+earn_rate):
-                self.action = 'sell'
-            else:
-                self.action = None
-
-            # Surrender
-            if len(trade_record_list) > 0 and \
-               price < (1-surrender_ratio)*last_trade_info['price']:
-                self.action = 'sell' 
-
-            # Get oder quantity
-            if self.action == 'buy':
-                order_quantity = \
-                    order_ratio * self.manager.balances[self.config.BRIDGE_SYMBOL]
-            elif self.action == 'sell':
-                order_quantity = \
-                    order_ratio * self.manager.balances[self.config.CURRENT_COIN_SYMBOL]
-                    
-            # Trading
-            if self.action is not None and self.action != self.last_action:
-                singal = (self.action, self.pair, order_quantity)
-                self.simple_trader(singal)
-                if self.action == 'sell':
-                    print(f'trade times {self.trade_times}')
-
-    def slow_fast_ma_trade(self):
-        ma_lenth1 = 7 * 15
-        ma_lenth2 = 99 * 15
-        cur_price = self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}')
-        if cur_price is not None:
-            self.prices.append(cur_price)
-        else:
-            return
-        if len(self.prices) > self.max_len:
-            self.prices.pop(0)
-
-        if len(self.prices) >= max(ma_lenth1, ma_lenth2):
-            ma1 = np.mean(self.prices[-ma_lenth1:])
-            ma2 = np.mean(self.prices[-ma_lenth2:])
-
-            if self.status:
-                if ma1 > ma2:
-                # if ma1 > ma2 and (ma1-ma2)/ma2>0.5:
-                    if self.status == 'sell':
-                        altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
-                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
-                        self.manager.buy_alt(altcoin, self.config.BRIDGE, order_quantity)
-                    self.status = 'buy'
-                else:
-                # elif ma1 < ma2 and (ma2-ma1)/ma1>0.5:
-                    if self.status == 'buy':
-                        altcoin = self.db.get_coin(self.config.CURRENT_COIN_SYMBOL)
-                        order_quantity = 0.1 * self.manager.balances[self.config.BRIDGE_SYMBOL]
-                        self.manager.sell_alt(altcoin, self.config.BRIDGE, order_quantity)
-                    self.status = 'sell'
-            else:
-                self.status = 'buy' if ma1 > ma2 else 'sell'
-
-            # print(self.manager.datetime, self.status)
-
         # print(time.ctime(time.time()), self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}'))
+    
     def moving_average(self, x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
 

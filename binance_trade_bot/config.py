@@ -80,3 +80,7 @@ class Config:  # pylint: disable=too-few-public-methods,too-many-instance-attrib
 
         self.USE_MARGIN = os.environ.get("USE_MARGIN") or config.get(USER_CFG_SECTION, "use_margin")
         self.SCOUT_MARGIN = float(os.environ.get("SCOUT_MARGIN") or config.get(USER_CFG_SECTION, "scout_margin"))
+
+        self.BUY_SPEED = float(os.environ.get("BUY_SPEED") or config.get(USER_CFG_SECTION, "buy_speed"))
+        self.SELL_SPEED = float(os.environ.get("SELL_SPEED") or config.get(USER_CFG_SECTION, "sell_speed"))
+        self.SEQ_LEN = float(os.environ.get("SEQ_LEN") or config.get(USER_CFG_SECTION, "seq_len"))

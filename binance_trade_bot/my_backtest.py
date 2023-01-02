@@ -13,6 +13,7 @@ from .config import Config
 from .database import Database
 from .logger import Logger
 from .models import Coin, Pair
+from .recorder import TradeRecorder
 from .strategies import get_strategy
 
 cache = SqliteDict("data/backtest_cache.db")
@@ -26,11 +27,13 @@ class MockBinanceManager(BinanceAPIManager):
         logger: Logger,
         start_date: datetime = None,
         start_balances: Dict[str, float] = None,
+        recorder: TradeRecorder = None,
     ):
         super().__init__(config, db, logger)
         self.config = config
         self.datetime = start_date or datetime(2021, 1, 1)
         self.balances = start_balances or {config.BRIDGE.symbol: 100}
+        self.recorder = recorder
 
     def setup_websockets(self):
         pass  # No websockets are needed for backtesting
@@ -41,7 +44,7 @@ class MockBinanceManager(BinanceAPIManager):
     def get_fee(self, origin_coin: Coin, target_coin: Coin, selling: bool):
         return 0.00075
 
-    def get_ticker_price(self, ticker_symbol: str):
+    def get_ticker_price(self, ticker_symbol: str, return_time: bool = False):
         """
         Get ticker price of a specific coin
         """
@@ -63,7 +66,10 @@ class MockBinanceManager(BinanceAPIManager):
             cache.commit()
             val = cache.get(key, None)
         # print(key)
-        return val
+        if return_time:
+            return (key, val)
+        else:
+            return val
 
     def get_currency_balance(self, currency_symbol: str, force=False):
         """
@@ -76,7 +82,7 @@ class MockBinanceManager(BinanceAPIManager):
         target_symbol = target_coin.symbol
 
         target_balance = self.get_currency_balance(target_symbol)
-        from_coin_price = self.get_ticker_price(origin_symbol + target_symbol)
+        time, from_coin_price = self.get_ticker_price(origin_symbol + target_symbol, return_time=True)
 
         if assign_quantity is not None:
             target_balance = assign_quantity
@@ -91,9 +97,12 @@ class MockBinanceManager(BinanceAPIManager):
             f"{self.balances[target_symbol]}"
         )
 
-        event = defaultdict(lambda: None, order_price=from_coin_price, cumulative_quote_asset_transacted_quantity=0)
-
-        return BinanceOrder(event)
+        event = defaultdict(lambda: None, time=time, order_price=from_coin_price, 
+                            cumulative_quote_asset_transacted_quantity=0,
+                            order_type='buy')
+        order = BinanceOrder(event)
+        self.recorder.record(event)
+        return order
 
     def sell_alt(self, origin_coin: Coin, target_coin: Coin, assign_quantity: float = None):
         # if assign_quantity == 0:
@@ -102,7 +111,7 @@ class MockBinanceManager(BinanceAPIManager):
         target_symbol = target_coin.symbol
 
         origin_balance = self.get_currency_balance(origin_symbol)
-        from_coin_price = self.get_ticker_price(origin_symbol + target_symbol)
+        time, from_coin_price = self.get_ticker_price(origin_symbol + target_symbol, return_time=True)
 
         if assign_quantity is not None:
             order_quantity = self._sell_quantity(origin_symbol, target_symbol, origin_balance)
@@ -118,6 +127,11 @@ class MockBinanceManager(BinanceAPIManager):
             f"Sold {origin_symbol}, balance now: {self.balances[origin_symbol]} - bridge: "
             f"{self.balances[target_symbol]}"
         )
+        event = defaultdict(lambda: None, time=time, order_price=from_coin_price, 
+                            cumulative_quote_asset_transacted_quantity=0,
+                            order_type='sell')
+        # order = BinanceOrder(event)
+        self.recorder.record(event)
         return {"price": from_coin_price}
 
     def collate_coins(self, target_symbol: str):
@@ -174,20 +188,23 @@ def backtest(
     # TODO: set level to warning to avoid info
     import logging
     logger.Logger.setLevel(logging.WARNING)
+    
+    recorder = TradeRecorder()
 
     end_date = end_date or datetime.today()
 
     db = MockDatabase(logger, config)
     db.create_database()
     db.set_coins(config.SUPPORTED_COIN_LIST)
-    manager = MockBinanceManager(config, db, logger, start_date, start_balances)
+    manager = MockBinanceManager(
+        config, db, logger, start_date, start_balances, recorder)
 
-    starting_coin = db.get_coin(starting_coin or config.SUPPORTED_COIN_LIST[0])
-    if manager.get_currency_balance(starting_coin.symbol) == 0:
-        bridge_balance = manager.get_currency_balance(config.BRIDGE_SYMBOL)
-        bridge_balance /= 2
-        manager.buy_alt(starting_coin, config.BRIDGE, bridge_balance)
-    db.set_current_coin(starting_coin)
+    # starting_coin = db.get_coin(starting_coin or config.SUPPORTED_COIN_LIST[0])
+    # if manager.get_currency_balance(starting_coin.symbol) == 0:
+    #     bridge_balance = manager.get_currency_balance(config.BRIDGE_SYMBOL)
+    #     bridge_balance /= 2
+    #     manager.buy_alt(starting_coin, config.BRIDGE, bridge_balance)
+    # db.set_current_coin(starting_coin)
 
     strategy = get_strategy(config.STRATEGY)
     if strategy is None:
@@ -196,7 +213,7 @@ def backtest(
     trader = strategy(manager, db, logger, config)
     trader.initialize()
 
-    yield manager, trader
+    yield manager, trader, recorder
 
     n = 1
     print(n)
@@ -208,7 +225,7 @@ def backtest(
                 logger.warning(format_exc())
             manager.increment(interval)
             if n % yield_interval == 0:
-                yield manager, trader
+                yield manager, trader, recorder
             n += 1
         # total_slow = trader.total_slow
         # total_fast = trader.total_fast
@@ -222,4 +239,4 @@ def backtest(
 
     pprint(trader.trade_record)
     cache.close()
-    return manager, trader
+    return manager, trader, recorder
