@@ -121,8 +121,8 @@ def main():
     idx = 0
     # TODO: long time
     # TODO: time zone problem
-    start_time = datetime(2022, 1, 1)
-    end_time = datetime(2022, 12, 25)
+    start_time = datetime(2022, 11, 1)
+    end_time = datetime(2022, 11, 11)
     save_time = 2 # day
     days = [start_time.day]
     pic_start = 0

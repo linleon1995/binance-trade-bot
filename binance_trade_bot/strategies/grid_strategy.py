@@ -54,6 +54,7 @@ class Strategy(AutoTrader):
         self.max_price = -100000
         self.max_gap = None
         self.buy_event_count = None
+        self.sell_flag = False
         
     def scout(self):
         # Get
@@ -117,14 +118,14 @@ class Strategy(AutoTrader):
         long_buy_speed = 1.5 * buy_speed
         long_sell_speed = 1.5 * sell_speed
         seq_len = int(self.config.SEQ_LEN)
-        mid_seq_len = 12 * seq_len
-        long_seq_len = 48 * seq_len
+        mid_seq_len = 2 * seq_len
+        long_seq_len = 8 * seq_len
         max_seq_len = max([seq_len, mid_seq_len, long_seq_len])
         order_ratio = 1.0
         earn_rate = 2
-        bonus = 1.1
+        bonus = 1.05
         # earn_rate = 0.15
-        hard_sell_rate = -0.1
+        hard_sell_rate = -0.15
 
         pair_str = f"{self.pair[0]}{self.pair[1]}"
         if self.action is not None:
@@ -160,12 +161,13 @@ class Strategy(AutoTrader):
             # else:
             #     power = 1.5
                 
-            if long_r > 0:
-                if r > buy_speed and \
-                   mid_r > buy_speed*bonus and \
-                   long_r > buy_speed*(bonus**2):
-                    self.action = 'buy'
-                    # self.buy_event_count = 0
+            if self.last_action != 'buy':
+                if long_r > 0:
+                    if r > buy_speed and \
+                    mid_r > buy_speed*bonus and \
+                    long_r > buy_speed*(bonus**2):
+                        self.action = 'buy'
+                        # self.buy_event_count = 0
                     
 
             # if self.last_action == 'buy':
@@ -174,14 +176,25 @@ class Strategy(AutoTrader):
             #     if cur_r < hard_sell_rate:
             #         self.action = 'sell'
             
+                
             if self.last_action == 'buy':
-                last_buy_price = list(self.trade_record.values())[-1]['price']
-                if price > (1+0.02)*last_buy_price:
+                # TODO: lock status
+                if not self.sell_flag:
                     if long_r < 0:
-                        if r < sell_speed and \
-                        mid_r < sell_speed*bonus and \
-                        long_r < sell_speed*(bonus**2):
-                            self.action = 'sell'
+                        self.sell_flag = True
+                    
+                if self.sell_flag:
+                    last_buy_price = list(self.trade_record.values())[-1]['price']
+                    if price > (1+0.02)*last_buy_price:
+                        self.action = 'sell'
+                        self.sell_flag = False
+                    else:
+                        if long_r < 0:
+                            if r < sell_speed and \
+                            mid_r < sell_speed*bonus and \
+                            long_r < sell_speed*(bonus**2):
+                                self.action = 'sell'
+                                self.sell_flag = False
                     
                     
             # if self.last_action == 'buy':
