@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import random
 import sys
 from datetime import datetime
+from collections import deque
 
 from matplotlib.cbook import print_cycles
 from regex import B
@@ -55,10 +56,15 @@ class Strategy(AutoTrader):
         self.max_gap = None
         self.buy_event_count = None
         self.sell_flag = False
+        self.hard_sell_price = None
+        N = 10
+        self.sell_points = {'corners': deque(maxlen=N), 'prices': deque(maxlen=N)}
+        self.near_corners = deque(maxlen=32)
         
     def scout(self):
         # Get
-        self.speed()
+        # self.speed()
+        self.momentum()
         # self.simple_ma_trade()
     
     def record_prices(self, pair_str):
@@ -84,13 +90,56 @@ class Strategy(AutoTrader):
             if cur_earn < hard_stop:
                 self.action = 'sell'
 
-    def get_earn_rate(self, seq, length):
-        lag_seq = seq.copy()
-        seq1 = np.array(seq[length:])
-        seq2 = np.array(lag_seq[:-length])
-        seq_diff = (seq1-seq2) / seq2
-        r = seq_diff[-1]
-        return r
+    def get_earn_rate(self, seq):
+        cur_price = seq[-1]
+        diff = (np.ones_like(seq) * cur_price) - seq
+        earn = diff / cur_price
+        return earn
+        
+    def simple_get_corner(self, prices, diff_len=1, smooth_len=5):
+        if len(prices) <= smooth_len+diff_len+1:
+            return None
+        
+        prices = prices[-smooth_len-diff_len-1:]
+        prices_lag = prices.copy()
+        diff = np.array(prices[diff_len:]) - np.array(prices_lag[:-diff_len])
+        # diff = np.abs(diff)
+        corner = prices[np.argmax(diff)]
+        return corner
+    
+    def find_sell_point(self, prices, pool_size=3):
+        prices = np.array(prices[-3:])
+        corner = -(prices[1]-prices[0]) + (prices[2]-prices[1])
+        corner_price = prices[2]
+        self.near_corners.append(corner)
+        
+        if corner > max(list(self.near_corners)[:-1]):
+            self.sell_points['corners'].append(corner)
+            self.sell_points['prices'].append(corner_price)
+            
+        return self.sell_points['prices'][-1]
+        
+        
+    def find_sell_point_old(self, prices, pool_size=3):
+        prices = np.array(prices[-3:])
+        corners = self.get_corners(prices)
+        max_corner, max_corner_price = np.max(corners), prices[np.argmax(corners)+1]
+
+        if len(self.sell_points['corners']) >= pool_size:
+            if max_corner > np.max(list(self.sell_points['corners'])[(-pool_size-1):]):
+                self.sell_points['corners'].append(max_corner)
+                self.sell_points['prices'].append(max_corner_price)
+        else:
+            self.sell_points['corners'].extend(corners[(-pool_size-1):])
+            self.sell_points['prices'].extend(prices[(-pool_size-1):])
+        return self.sell_points['prices'][-1]
+        
+    def get_corners(self, prices):
+        mid = prices[1:-1]
+        last = prices[:-2]
+        next = prices[2:]
+        corners = -(mid-last) + (next-mid)
+        return corners
         
     def simple_trader(self, signal):
         trade, pair, quant = signal
@@ -103,15 +152,99 @@ class Strategy(AutoTrader):
 
         if trade == 'buy':
             self.manager.buy_alt(altcoin, self.config.BRIDGE, quant)
-        price = self.manager.get_ticker_price(pair_str)
-        self.trade_record[self.manager.datetime] = {
-            'action': trade,
-            'quant': quant,
-            'price': price,
-            'pair': pair_str
-        }
-        # self.prices_trade.append(price)
-        
+            
+    def momentum(self):
+        buy_speed = self.config.BUY_SPEED * self.growth
+        sell_speed = self.config.SELL_SPEED
+        long_buy_speed = 1.5 * buy_speed
+        long_sell_speed = 1.5 * sell_speed
+        seq_len = int(self.config.SEQ_LEN)
+        mid_seq_len = 2 * seq_len
+        long_seq_len = 8 * seq_len
+        very_long_seq_len = 48 * 60 * seq_len
+        max_seq_len = max([seq_len, mid_seq_len, long_seq_len, very_long_seq_len])
+        order_ratio = 1.0
+        earn_rate = 2
+        bonus = 1.05
+        # bonus = 1.15 # BAND 2021.11.1~2021.11.9
+        # earn_rate = 0.15
+        hard_sell_rate = -0.1
+        stop_profit_decay = 0.99
+
+        pair_str = f"{self.pair[0]}{self.pair[1]}"
+        if self.action is not None:
+            self.last_action = self.action
+
+        self.record_prices(pair_str)
+
+        price = self.prices[-1]
+        trade_record_list = list(self.trade_record.values())
+        if len(trade_record_list) > 0:
+            last_trade_info = trade_record_list[-1]
+
+        if len(self.prices) > max_seq_len+1:
+            earn_rates = self.get_earn_rate(self.prices)
+            r = earn_rates[-seq_len-1]
+            mid_r = earn_rates[-mid_seq_len-1]
+            long_r = earn_rates[-long_seq_len-1]
+            very_long_r = earn_rates[-very_long_seq_len-1]
+            print(f'ratio={r:.4f}, mid_r={mid_r:.4f}, long_r={long_r:.4f}')
+           
+            if self.last_action != 'buy':
+                if very_long_r > 0:
+                    # if r > buy_speed:
+                    if r > buy_speed and \
+                    mid_r > buy_speed**bonus and \
+                    long_r > (buy_speed**bonus)**bonus:
+                        self.action = 'buy'
+                        self.hard_sell_price = price * (1+hard_sell_rate)
+                        # self.buy_event_count = 0
+                    
+            if self.last_action == 'buy':
+                last_buy_price = list(self.trade_record.values())[-1]['price']
+                if (price - last_buy_price) / last_buy_price > 0.03:
+                    # stop_profit_price = self.simple_get_corner(self.prices)
+                    stop_profit_price = self.find_sell_point(self.prices)
+                    print('stop', stop_profit_price*stop_profit_decay)
+                    if price < stop_profit_price*stop_profit_decay:
+                        self.action = 'sell'
+                
+            if len(trade_record_list) > 0:
+                if self.last_action == 'buy':
+                    if price < self.hard_sell_price:
+                        self.action = 'sell'
+                        
+                self.stop_trading(price, last_trade_info['price'], hard_sell_rate)
+            # if len(trade_record_list) > 0:
+            #     if price < last_trade_info['price']*1.2:
+            #         self.action = 'sell'
+
+        # Get oder quantity
+        if self.action == 'buy':
+            order_quantity = \
+                order_ratio * self.manager.balances[self.config.BRIDGE_SYMBOL]
+        elif self.action == 'sell':
+            order_quantity = \
+                order_ratio * self.manager.balances[self.config.CURRENT_COIN_SYMBOL]
+                
+        # Trading
+        if self.action is not None and self.action != self.last_action:
+            singal = (self.action, self.pair, order_quantity)
+            self.simple_trader(singal)
+            
+            self.trade_record[self.manager.datetime] = {
+                'action': self.action,
+                'quant': order_quantity,
+                'price': price,
+                'pair': pair_str
+            }
+            if self.action == 'sell':
+                earn = (price-last_buy_price) / last_buy_price
+                earn_str = f'{earn*100:.2f} %'
+                self.trade_record[self.manager.datetime]['earn'] = earn_str
+                print(f'trade times {self.trade_times}')
+        # print(time.ctime(time.time()), self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}'))
+    
     def speed(self):
         buy_speed = self.config.BUY_SPEED * self.growth
         sell_speed = self.config.SELL_SPEED
@@ -149,9 +282,10 @@ class Strategy(AutoTrader):
         #         sell_speed = b
 
         if len(self.prices) > max_seq_len+1:
-            r = self.get_earn_rate(self.prices, seq_len)
-            mid_r = self.get_earn_rate(self.prices, mid_seq_len)
-            long_r = self.get_earn_rate(self.prices, long_seq_len)
+            earn_rates = self.get_earn_rate(self.prices)
+            r = earn_rates[-seq_len-1]
+            mid_r = earn_rates[-mid_seq_len-1]
+            long_r = earn_rates[-long_seq_len-1]
             print(f'ratio: {r}')
             # if self.buy_event_count is not None:
                 # self.buy_event_count += 1
@@ -163,10 +297,12 @@ class Strategy(AutoTrader):
                 
             if self.last_action != 'buy':
                 if long_r > 0:
-                    if r > buy_speed and \
-                    mid_r > buy_speed*bonus and \
-                    long_r > buy_speed*(bonus**2):
+                    if r > buy_speed:
+                    # if r > buy_speed and \
+                    # mid_r > buy_speed*bonus and \
+                    # long_r > buy_speed*(bonus**2):
                         self.action = 'buy'
+                        self.hard_sell_price = price * (1+hard_sell_rate)
                         # self.buy_event_count = 0
                     
 
@@ -183,18 +319,22 @@ class Strategy(AutoTrader):
                     if long_r < 0:
                         self.sell_flag = True
                     
-                if self.sell_flag:
-                    last_buy_price = list(self.trade_record.values())[-1]['price']
-                    if price > (1+0.02)*last_buy_price:
-                        self.action = 'sell'
-                        self.sell_flag = False
-                    else:
-                        if long_r < 0:
-                            if r < sell_speed and \
-                            mid_r < sell_speed*bonus and \
-                            long_r < sell_speed*(bonus**2):
-                                self.action = 'sell'
-                                self.sell_flag = False
+                last_buy_price = list(self.trade_record.values())[-1]['price']
+                if price > self.hard_sell_price*1.011:
+                    if mid_r > 0:
+                        self.hard_sell_price = price*0.93
+                else:
+                    if self.sell_flag:
+                        if price > (1+0.02)*last_buy_price:
+                            self.action = 'sell'
+                            self.sell_flag = False
+                        else:
+                            if long_r < 0:
+                                if r < sell_speed and \
+                                mid_r < sell_speed*bonus and \
+                                long_r < sell_speed*(bonus**2):
+                                    self.action = 'sell'
+                                    self.sell_flag = False
                     
                     
             # if self.last_action == 'buy':
@@ -223,6 +363,10 @@ class Strategy(AutoTrader):
             #     if r < hard_sell_rate:
             #         self.action = 'sell'
             if len(trade_record_list) > 0:
+                if self.last_action == 'buy':
+                    if price < self.hard_sell_price:
+                        self.action = 'sell'
+                        
                 self.stop_trading(price, last_trade_info['price'], hard_sell_rate)
             # if len(trade_record_list) > 0:
             #     if price < last_trade_info['price']*1.2:
@@ -240,7 +384,17 @@ class Strategy(AutoTrader):
         if self.action is not None and self.action != self.last_action:
             singal = (self.action, self.pair, order_quantity)
             self.simple_trader(singal)
+            
+            self.trade_record[self.manager.datetime] = {
+                'action': self.action,
+                'quant': order_quantity,
+                'price': price,
+                'pair': pair_str
+            }
             if self.action == 'sell':
+                earn = (price-last_buy_price) / last_buy_price
+                earn_str = f'{earn*100:.2f} %'
+                self.trade_record[self.manager.datetime]['earn'] = earn_str
                 print(f'trade times {self.trade_times}')
         # print(time.ctime(time.time()), self.manager.get_ticker_price(f'{self.config.CURRENT_COIN_SYMBOL}{self.config.BRIDGE_SYMBOL}'))
     

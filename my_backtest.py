@@ -121,8 +121,8 @@ def main():
     idx = 0
     # TODO: long time
     # TODO: time zone problem
-    start_time = datetime(2022, 11, 1)
-    end_time = datetime(2022, 11, 11)
+    start_time = datetime(2022, 10, 20)
+    end_time = datetime(2022, 11, 4)
     save_time = 2 # day
     days = [start_time.day]
     pic_start = 0
@@ -193,8 +193,8 @@ def main():
         idx += 1
         
         # profit_plot(total_time, trader, manager, start_month, profit)
-    print(month_profit)
-    print(list(month_profit.values()))
+    # print(month_profit)
+    # print(list(month_profit.values()))
     
     recorder.save(
         f'record/'
