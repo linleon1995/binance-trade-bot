@@ -101,7 +101,8 @@ class MockBinanceManager(BinanceAPIManager):
                             cumulative_quote_asset_transacted_quantity=0,
                             order_type='buy')
         order = BinanceOrder(event)
-        self.recorder.record(event)
+        # self.recorder.record(event)
+        # return order
         return order
 
     def sell_alt(self, origin_coin: Coin, target_coin: Coin, assign_quantity: float = None):
@@ -130,9 +131,10 @@ class MockBinanceManager(BinanceAPIManager):
         event = defaultdict(lambda: None, time=time, order_price=from_coin_price, 
                             cumulative_quote_asset_transacted_quantity=0,
                             order_type='sell')
-        # order = BinanceOrder(event)
-        self.recorder.record(event)
-        return {"price": from_coin_price}
+        order = BinanceOrder(event)
+        # self.recorder.record(event)
+        # return {"price": from_coin_price}
+        return order
 
     def collate_coins(self, target_symbol: str):
         """Total balance worth in target symbol (coin)"""

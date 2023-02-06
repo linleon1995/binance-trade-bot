@@ -10,7 +10,7 @@ from collections import deque
 from matplotlib.cbook import print_cycles
 from regex import B
 
-from binance_trade_bot.auto_trader import AutoTrader
+from binance_trade_bot.strategies.base_strategy import BaseStrategy
 
 # TODO: class to handle whole sequence (rsv, kdj, macd, ema)
 
@@ -27,7 +27,7 @@ def kdj(data, last_k, last_d):
     return k, d, j
 
 
-class Strategy(AutoTrader):
+class Strategy(BaseStrategy):
     def initialize(self):
         # super().initialize()
         self.initialize_current_coin()
@@ -67,29 +67,6 @@ class Strategy(AutoTrader):
         self.momentum()
         # self.simple_ma_trade()
     
-    def record_prices(self, pair_str):
-        cur_price = self.manager.get_ticker_price(pair_str)
-        if cur_price < self.min_price:
-            self.min_price = cur_price
-            self.max_gap = (self.max_price-self.min_price) / self.min_price
-            
-        if cur_price > self.max_price:
-            self.max_price = cur_price
-            self.max_gap = (self.max_price-self.min_price) / self.min_price
-            
-        if cur_price is not None:
-            self.prices.append(cur_price)
-        else:
-            return
-        if len(self.prices) > self.max_len:
-            self.prices.pop(0)
-
-    def stop_trading(self, cur_price, last_trade_price, hard_stop):
-        if self.last_action == 'buy':
-            cur_earn = (cur_price-last_trade_price) / last_trade_price
-            if cur_earn < hard_stop:
-                self.action = 'sell'
-
     def get_earn_rate(self, seq):
         cur_price = seq[-1]
         diff = (np.ones_like(seq) * cur_price) - seq
@@ -118,7 +95,12 @@ class Strategy(AutoTrader):
             self.sell_points['prices'].append(corner_price)
             
         return self.sell_points['prices'][-1]
-        
+    
+    def stop_trading(self, cur_price, last_trade_price, hard_stop):
+        if self.last_action == 'buy':
+            cur_earn = (cur_price-last_trade_price) / last_trade_price
+            if cur_earn < hard_stop:
+                self.action = 'sell'
         
     def find_sell_point_old(self, prices, pool_size=3):
         prices = np.array(prices[-3:])
@@ -140,18 +122,6 @@ class Strategy(AutoTrader):
         next = prices[2:]
         corners = -(mid-last) + (next-mid)
         return corners
-        
-    def simple_trader(self, signal):
-        trade, pair, quant = signal
-        altcoin = self.db.get_coin(pair[0])
-        pair_str = f'{pair[0]}{pair[1]}'
-
-        if trade == 'sell':
-            self.manager.sell_alt(altcoin, self.config.BRIDGE, quant)
-            self.trade_times += 1
-
-        if trade == 'buy':
-            self.manager.buy_alt(altcoin, self.config.BRIDGE, quant)
             
     def momentum(self):
         buy_speed = self.config.BUY_SPEED * self.growth
@@ -230,7 +200,7 @@ class Strategy(AutoTrader):
         # Trading
         if self.action is not None and self.action != self.last_action:
             singal = (self.action, self.pair, order_quantity)
-            self.simple_trader(singal)
+            self.trade_worker(singal)
             
             self.trade_record[self.manager.datetime] = {
                 'action': self.action,
@@ -383,7 +353,7 @@ class Strategy(AutoTrader):
         # Trading
         if self.action is not None and self.action != self.last_action:
             singal = (self.action, self.pair, order_quantity)
-            self.simple_trader(singal)
+            self.trade_worker(singal)
             
             self.trade_record[self.manager.datetime] = {
                 'action': self.action,
@@ -429,35 +399,3 @@ class Strategy(AutoTrader):
                     ax.legend(['price', '15', '60', '240'])
                     fig.savefig(f'plot/ma/ma_{i}_{i+r}.png')
     
-    def bridge_scout(self):
-        current_coin = self.db.get_current_coin()
-        if self.manager.get_currency_balance(current_coin.symbol) > self.manager.get_min_notional(
-            current_coin.symbol, self.config.BRIDGE.symbol
-        ):
-            # Only scout if we don't have enough of the current coin
-            return
-        new_coin = super().bridge_scout()
-        if new_coin is not None:
-            self.db.set_current_coin(new_coin)
-
-    def initialize_current_coin(self):
-        """
-        Decide what is the current coin, and set it up in the DB.
-        """
-        if self.db.get_current_coin() is None:
-            current_coin_symbol = self.config.CURRENT_COIN_SYMBOL
-            if not current_coin_symbol:
-                current_coin_symbol = random.choice(self.config.SUPPORTED_COIN_LIST)
-
-            self.logger.info(f"Setting initial coin to {current_coin_symbol}")
-
-            if current_coin_symbol not in self.config.SUPPORTED_COIN_LIST:
-                sys.exit("***\nERROR!\nSince there is no backup file, a proper coin name must be provided at init\n***")
-            self.db.set_current_coin(current_coin_symbol)
-
-            # if we don't have a configuration, we selected a coin at random... Buy it so we can start trading.
-            if self.config.CURRENT_COIN_SYMBOL == "":
-                current_coin = self.db.get_current_coin()
-                self.logger.info(f"Purchasing {current_coin} to begin trading")
-                self.manager.buy_alt(current_coin, self.config.BRIDGE)
-                self.logger.info("Ready to start trading")

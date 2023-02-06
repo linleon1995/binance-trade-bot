@@ -9,5 +9,11 @@ class TradeRecorder():
         self.df = self.df.append(event, ignore_index=True)
         print(self.df)
         
+    def info_record(self, key, val):
+        pass
+    
+    def trade_rcord(self, order):
+        pass
+    
     def save(self, save_dir):
         self.df.to_csv(save_dir)
