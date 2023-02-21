@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
 from traceback import format_exc
-from typing import Dict
+from typing import Dict, List
 import matplotlib.pyplot as plt
 from pprint import pprint
 
@@ -9,7 +9,8 @@ from sqlitedict import SqliteDict
 
 from .binance_api_manager import BinanceAPIManager
 from .binance_stream_manager import BinanceOrder
-from .config import Config
+# from .config import Config
+from .grid_config import Config
 from .database import Database
 from .logger import Logger
 from .models import Coin, Pair
@@ -50,6 +51,8 @@ class MockBinanceManager(BinanceAPIManager):
         """
         target_date = self.datetime.strftime("%d %b %Y %H:%M:%S")
         key = f"{ticker_symbol} - {target_date}"
+        # for key, item in cache.items():
+        #     print("%s=%s" % (key, item))
         val = cache.get(key, None)
         if val is None:
             end_date = self.datetime + timedelta(minutes=1000)
@@ -172,6 +175,7 @@ def backtest(
     start_balances: Dict[str, float] = None,
     starting_coin: str = None,
     config: Config = None,
+    coins: List = None
 ):
     """
 
@@ -185,6 +189,7 @@ def backtest(
 
     :return: The final coin balances
     """
+    cache = SqliteDict("data/backtest_cache.db")
     config = config or Config()
     logger = Logger("backtesting", enable_notifications=False)
     # TODO: set level to warning to avoid info
@@ -213,7 +218,7 @@ def backtest(
         logger.error("Invalid strategy name")
         return manager
     trader = strategy(manager, db, logger, config)
-    trader.initialize()
+    trader.initialize(coins)
 
     yield manager, trader, recorder
 

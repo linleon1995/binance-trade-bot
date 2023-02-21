@@ -28,32 +28,32 @@ def kdj(data, last_k, last_d):
 
 
 class Strategy(BaseStrategy):
-    def initialize(self):
-        # super().initialize()
+    def initialize(self, coins):
+        super().initialize(coins)
         self.initialize_current_coin()
-        self.prices = []
+        # self.prices = []
         # self.prices_trade = []
-        self.max_len = 10000
-        self.status = None
-        self.last_status = None
+        # self.max_len = 10000
+        # self.status = None
+        # self.last_status = None
         self.action = None
         self.last_action = None
-        self.last_k = 50
-        self.last_d = 50
+        # self.last_k = 50
+        # self.last_d = 50
         self.trade_times = 0
-        self.total_fast = []
-        self.total_mid = []
-        self.total_slow = []
+        # self.total_fast = []
+        # self.total_mid = []
+        # self.total_slow = []
         self.trade_record = {}
-        self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
+        # self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
         
-        self.buy_speed = 0.01
-        self.sell_speed = -0.08
+        # self.buy_speed = 0.01
+        # self.sell_speed = -0.08
         self.growth = 1.0
         
         self.min_price = 100000
         self.max_price = -100000
-        self.max_gap = None
+        # self.max_gap = None
         self.buy_event_count = None
         self.sell_flag = False
         self.hard_sell_price = None
@@ -61,7 +61,7 @@ class Strategy(BaseStrategy):
         self.sell_points = {'corners': deque(maxlen=N), 'prices': deque(maxlen=N)}
         self.near_corners = deque(maxlen=32)
         
-    def scout(self):
+    def run(self, price_record):
         # Get
         # self.speed()
         self.momentum()
@@ -145,15 +145,16 @@ class Strategy(BaseStrategy):
         if self.action is not None:
             self.last_action = self.action
 
-        self.record_prices(pair_str)
+        # self.record_prices(pair_str)
 
-        price = self.prices[-1]
+        prices, timestamp = list(self.prices.values()), list(self.prices.keys())
+        price = prices[-1]
         trade_record_list = list(self.trade_record.values())
         if len(trade_record_list) > 0:
             last_trade_info = trade_record_list[-1]
 
-        if len(self.prices) > max_seq_len+1:
-            earn_rates = self.get_earn_rate(self.prices)
+        if len(prices) > max_seq_len+1:
+            earn_rates = self.get_earn_rate(prices)
             r = earn_rates[-seq_len-1]
             mid_r = earn_rates[-mid_seq_len-1]
             long_r = earn_rates[-long_seq_len-1]
@@ -174,7 +175,7 @@ class Strategy(BaseStrategy):
                 last_buy_price = list(self.trade_record.values())[-1]['price']
                 if (price - last_buy_price) / last_buy_price > 0.03:
                     # stop_profit_price = self.simple_get_corner(self.prices)
-                    stop_profit_price = self.find_sell_point(self.prices)
+                    stop_profit_price = self.find_sell_point(prices)
                     print('stop', stop_profit_price*stop_profit_decay)
                     if price < stop_profit_price*stop_profit_decay:
                         self.action = 'sell'
@@ -190,12 +191,15 @@ class Strategy(BaseStrategy):
             #         self.action = 'sell'
 
         # Get oder quantity
+        # XXX: temp
+        current_coin = self.coins[0]
         if self.action == 'buy':
             order_quantity = \
                 order_ratio * self.manager.balances[self.config.BRIDGE_SYMBOL]
         elif self.action == 'sell':
             order_quantity = \
-                order_ratio * self.manager.balances[self.config.CURRENT_COIN_SYMBOL]
+                order_ratio * self.manager.balances[current_coin]
+                # order_ratio * self.manager.balances[self.config.CURRENT_COIN_SYMBOL]
                 
         # Trading
         if self.action is not None and self.action != self.last_action:

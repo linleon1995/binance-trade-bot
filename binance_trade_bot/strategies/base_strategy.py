@@ -6,23 +6,37 @@ import random
 import sys
 from datetime import datetime
 from collections import deque, OrderedDict
+from typing import List
 
 from matplotlib.cbook import print_cycles
 from regex import B
 
+from binance_trade_bot.binance_api_manager import BinanceAPIManager
+from binance_trade_bot.config import Config
+from binance_trade_bot.database import Database
+from binance_trade_bot.logger import Logger
 from binance_trade_bot.auto_trader import AutoTrader
 
 
+
 class BaseStrategy(AutoTrader):
-    def initialize(self):
+    # def __init__(self, binance_manager: BinanceAPIManager, database: Database, logger: Logger, config: Config, coins: List = None):
+    #     super().__init__(binance_manager, database, logger, config)
+    #     self.coins = coins
+        
+    def initialize(self, coins):
         # super().initialize()
+        self.coins = coins
         self.initialize_current_coin()
         self.maxlen = 10000
         self.prices = OrderedDict()
         self.status = None
         self.action = None
         self.trade_times = 0
-        self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
+        if self.coins is not None:
+           self.pair = (self.coins[0], self.config.BRIDGE_SYMBOL)
+        else:
+            self.pair = (self.config.CURRENT_COIN_SYMBOL, self.config.BRIDGE_SYMBOL)
         
         self.min_price = 100000
         self.max_price = -100000
@@ -33,18 +47,27 @@ class BaseStrategy(AutoTrader):
         price_record = self.record_prices(pair_str)
         cur_price, cur_time = price_record
         self.check_stop_condition()
+        self.check_pause_condition()
         self.get_max_gap(cur_price)
         self.run(price_record)
     
-    def run(self, price_record):
+    def run(self):
         raise NotImplementedError
     
     def check_stop_condition(self):
         # TODO: -20% stop 
-        balance = self.manager.get_currency_balance()
+        # balance = self.manager.get_currency_balance()
+        pass
         
     def stop(self):
         raise KeyboardInterrupt
+    
+    def check_pause_condition(self):
+        pass
+        
+    def pause(self, pause_time):
+        import time
+        time.sleep(pause_time)
     
     def record_prices(self, pair_str):
         cur_price = self.manager.get_ticker_price(pair_str)
@@ -106,6 +129,9 @@ class BaseStrategy(AutoTrader):
 
             if current_coin_symbol not in self.config.SUPPORTED_COIN_LIST:
                 sys.exit("***\nERROR!\nSince there is no backup file, a proper coin name must be provided at init\n***")
+            
+            if self.coins is not None:
+                current_coin_symbol = self.coins[0]
             self.db.set_current_coin(current_coin_symbol)
 
             # if we don't have a configuration, we selected a coin at random... Buy it so we can start trading.
@@ -114,3 +140,11 @@ class BaseStrategy(AutoTrader):
                 self.logger.info(f"Purchasing {current_coin} to begin trading")
                 self.manager.buy_alt(current_coin, self.config.BRIDGE)
                 self.logger.info("Ready to start trading")
+                
+                
+class MultiCoinStrategy(BaseStrategy):
+    pass
+    # Manage multi coins
+    # Manage profolio
+        # Buy: Adjust buying ratio by profolio
+        # Sell: 

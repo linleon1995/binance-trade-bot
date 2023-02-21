@@ -27,6 +27,8 @@ class Config:  # pylint: disable=too-few-public-methods,too-many-instance-attrib
             "api_key": "0",
             "api_secret_key": "0",
             "current_coin": "0",
+            
+            "SOLO_TEST_COIN": "None",
         }
 
         if not os.path.exists(CFG_FL_NAME):
@@ -69,6 +71,11 @@ class Config:  # pylint: disable=too-few-public-methods,too-many-instance-attrib
                     if not line or line.startswith("#") or line in supported_coin_list:
                         continue
                     supported_coin_list.append(line)
+                    
+        if "SOLO_TEST_COIN" is None:
+            assert "SOLO_TEST_COIN" in supported_coin_list, 'Solo testing coin not in supported coin list'
+            supported_coin_list = ["SOLO_TEST_COIN"]
+            
         self.SUPPORTED_COIN_LIST = supported_coin_list
 
         self.CURRENT_COIN_SYMBOL = os.environ.get("CURRENT_COIN_SYMBOL") or config.get(USER_CFG_SECTION, "current_coin")
@@ -81,7 +88,7 @@ class Config:  # pylint: disable=too-few-public-methods,too-many-instance-attrib
         self.USE_MARGIN = os.environ.get("USE_MARGIN") or config.get(USER_CFG_SECTION, "use_margin")
         self.SCOUT_MARGIN = float(os.environ.get("SCOUT_MARGIN") or config.get(USER_CFG_SECTION, "scout_margin"))
 
-        # new grid config
-        
-        
+        self.BUY_SPEED = float(os.environ.get("BUY_SPEED") or config.get(USER_CFG_SECTION, "buy_speed"))
+        self.SELL_SPEED = float(os.environ.get("SELL_SPEED") or config.get(USER_CFG_SECTION, "sell_speed"))
+        self.SEQ_LEN = float(os.environ.get("SEQ_LEN") or config.get(USER_CFG_SECTION, "seq_len"))
         
